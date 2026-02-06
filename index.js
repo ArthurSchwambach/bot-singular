@@ -112,7 +112,7 @@ client.on('interactionCreate', async i => {
   const id = i.user.id;
 
   // COMANDO DE CHAT
-  if (i.isChatInputCommand() && i.commandName === 'singular') {
+  if (i.isChatInputCommand() && i.commandName === 'ficha') {
     return i.reply(await menuPrincipal(id)); // <--- AWAIT IMPORTANTE
   }
 
