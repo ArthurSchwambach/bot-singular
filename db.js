@@ -1,106 +1,114 @@
-const fs = require('fs');
-const path = './fichas.json';
+const mongoose = require('mongoose');
 
-const defaultFicha = {
-    nome: "Desconhecido",
-    ocupacao: "N/A", // Novo campo padrão
-    idade: "?",
-    altura: "?",
-    eurodolares: 0,
-    
-    controleNeural: 0, 
-
-    atributos: {
-        forca: 0,
-        destreza: 0,
-        inteligencia: 0,
-        constitucao: 0,
-        percepcao: 0,
-        carisma: 0
-    },
-
-    itens: [],
-    implantes: [],
-
-    vida: {
-        atual: 10,
-        max: 10
+// --- 1. CONEXÃO ---
+const connectDB = async () => {
+    try {
+        // Ele vai buscar o link lá no seu arquivo .env
+        await mongoose.connect(process.env.MONGO_URI);
+        console.log('📦 MongoDB Conectado com Sucesso!');
+    } catch (err) {
+        console.error('ERRO CRÍTICO NO MONGO:', err);
     }
 };
 
-function ler() { 
-    try { return JSON.parse(fs.readFileSync(path)); } 
-    catch (e) { return {}; }
-}
-function salvar(data) { fs.writeFileSync(path, JSON.stringify(data, null, 2)); }
-
-if (!fs.existsSync(path)) salvar({});
-
-module.exports = {
-    getFicha: (id) => ler()[id] || null,
+// --- 2. O MOLDE DA FICHA (Schema) ---
+// Isso aqui substitui o seu "defaultFicha" antigo
+const fichaSchema = new mongoose.Schema({
+    userId: { type: String, required: true, unique: true }, // ID do Discord
+    nome: { type: String, required: true },
+    ocupacao: { type: String, default: "N/A" },
+    idade: { type: String, default: "?" },
+    altura: { type: String, default: "?" },
+    eurodolares: { type: Number, default: 0 },
     
-    criarFicha: (id, nomeUser) => {
-        const dados = ler();
-        if (dados[id]) return false;
-        dados[id] = { ...defaultFicha, nome: nomeUser };
-        salvar(dados);
+    controleNeural: { type: Number, default: 0 },
+
+    atributos: {
+        forca: { type: Number, default: 0 },
+        destreza: { type: Number, default: 0 },
+        inteligencia: { type: Number, default: 0 },
+        constitucao: { type: Number, default: 0 },
+        percepcao: { type: Number, default: 0 },
+        carisma: { type: Number, default: 0 }
+    },
+
+    itens: { type: [String], default: [] },
+    implantes: { type: [String], default: [] },
+
+    vida: {
+        atual: { type: Number, default: 10 },
+        max: { type: Number, default: 10 }
+    }
+});
+
+// Cria o modelo
+const Ficha = mongoose.model('Ficha', fichaSchema);
+
+// --- 3. FUNÇÕES EXPORTADAS (Tudo virou Async) ---
+module.exports = {
+    connectDB,
+
+    // Buscar ficha (Substitui o ler()[id])
+    getFicha: async (id) => {
+        return await Ficha.findOne({ userId: id });
+    },
+    
+    // Criar ficha
+    criarFicha: async (id, nomeUser) => {
+        const existe = await Ficha.findOne({ userId: id });
+        if (existe) return false;
+        
+        await Ficha.create({ userId: id, nome: nomeUser });
         return true;
     },
     
-    apagarFicha: (id) => {
-        const dados = ler();
-        delete dados[id];
-        salvar(dados);
+    // Apagar ficha
+    apagarFicha: async (id) => {
+        await Ficha.findOneAndDelete({ userId: id });
     },
 
-    // --- ATUALIZADO: Agora recebe 'ocupacao' ---
-    setDadosPessoais: (id, nome, ocupacao, idade, altura, grana) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        dados[id].nome = nome;
-        dados[id].ocupacao = ocupacao; // Salva a ocupação
-        dados[id].idade = idade;
-        dados[id].altura = altura;
-        dados[id].eurodolares = parseInt(grana) || 0;
-        salvar(dados);
+    // Atualizar Dados Pessoais
+    setDadosPessoais: async (id, nome, ocupacao, idade, altura, grana) => {
+        await Ficha.findOneAndUpdate({ userId: id }, {
+            nome: nome,
+            ocupacao: ocupacao,
+            idade: idade,
+            altura: altura,
+            eurodolares: parseInt(grana) || 0
+        });
     },
 
-    setStatus: (id, vidaAtual, vidaMax, neural) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        dados[id].vida.atual = parseInt(vidaAtual) || 0;
-        dados[id].vida.max = parseInt(vidaMax) || 1;
-        dados[id].controleNeural = parseInt(neural) || 0;
-        salvar(dados);
+    // Atualizar Status (Vida/Neural)
+    setStatus: async (id, vidaAtual, vidaMax, neural) => {
+        await Ficha.findOneAndUpdate({ userId: id }, {
+            'vida.atual': parseInt(vidaAtual) || 0,
+            'vida.max': parseInt(vidaMax) || 1,
+            controleNeural: parseInt(neural) || 0
+        });
     },
 
-    setAtributos: (id, novosAtributos) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        dados[id].atributos = { ...dados[id].atributos, ...novosAtributos };
-        salvar(dados);
+    // Atualizar Atributos (Um pouco mais esperto que o antigo)
+    setAtributos: async (id, novosAtributos) => {
+        // Monta um objeto de atualização dinâmica
+        const update = {};
+        for (constKey in novosAtributos) {
+            update[`atributos.${constKey}`] = novosAtributos[constKey];
+        }
+        await Ficha.findOneAndUpdate({ userId: id }, { $set: update });
     },
 
-    addItem: (id, item) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        if (!dados[id].itens) dados[id].itens = []; 
-        dados[id].itens.push(item);
-        salvar(dados);
+    // Adicionar Item
+    addItem: async (id, item) => {
+        await Ficha.findOneAndUpdate({ userId: id }, { $push: { itens: item } });
     },
 
-    addImplante: (id, implante) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        dados[id].implantes.push(implante);
-        salvar(dados);
+    // Adicionar Implante
+    addImplante: async (id, implante) => {
+        await Ficha.findOneAndUpdate({ userId: id }, { $push: { implantes: implante } });
     },
 
-    limparInventario: (id) => {
-        const dados = ler();
-        if (!dados[id]) return;
-        dados[id].itens = [];
-        dados[id].implantes = [];
-        salvar(dados);
+    // Limpar Inventário
+    limparInventario: async (id) => {
+        await Ficha.findOneAndUpdate({ userId: id }, { itens: [], implantes: [] });
     }
 };
